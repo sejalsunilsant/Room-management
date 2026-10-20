@@ -29,7 +29,7 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
-    @Value("${app.cors.allowed-origins:http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000}")
+    @Value("${app.cors.allowed-origins:http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,https://stroommangment.vercel.app,https://*.vercel.app}")
     private String allowedOrigins;
 
     public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
@@ -68,11 +68,27 @@ public class SecurityConfig {
         CorsConfiguration configuration = new CorsConfiguration();
         List<String> origins = Arrays.stream(allowedOrigins.split(","))
                 .map(String::trim)
+                .map(o -> o.replaceAll("^[\"']|[\"']$", ""))
+                .map(o -> {
+                    // Extract strictly scheme://host[:port] if full URL like https://domain.com/login was provided
+                    try {
+                        if (o.startsWith("http://") || o.startsWith("https://")) {
+                            java.net.URI uri = java.net.URI.create(o);
+                            if (uri.getHost() != null) {
+                                return uri.getScheme() + "://" + uri.getHost() + (uri.getPort() != -1 ? ":" + uri.getPort() : "");
+                            }
+                        }
+                    } catch (Exception ignored) {
+                    }
+                    return o.replaceAll("/+$", "");
+                })
                 .filter(origin -> !origin.isEmpty())
+                .distinct()
                 .toList();
+
         configuration.setAllowedOriginPatterns(origins);
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-        configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Accept", "X-Requested-With"));
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"));
+        configuration.setAllowedHeaders(Collections.singletonList("*"));
         configuration.setExposedHeaders(Collections.singletonList("Authorization"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
