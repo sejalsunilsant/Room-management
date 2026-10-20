@@ -4,7 +4,9 @@ import com.roommanagement.backend.dto.RoomDto;
 import com.roommanagement.backend.exception.InvalidBookingException;
 import com.roommanagement.backend.exception.ResourceNotFoundException;
 import com.roommanagement.backend.model.Room;
+import com.roommanagement.backend.model.User;
 import com.roommanagement.backend.repository.RoomRepository;
+import com.roommanagement.backend.security.SecurityUtils;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -14,29 +16,34 @@ import java.util.stream.Collectors;
 public class RoomServiceImpl implements RoomService {
 
     private final RoomRepository roomRepository;
+    private final SecurityUtils securityUtils;
 
-    public RoomServiceImpl(RoomRepository roomRepository) {
+    public RoomServiceImpl(RoomRepository roomRepository, SecurityUtils securityUtils) {
         this.roomRepository = roomRepository;
+        this.securityUtils = securityUtils;
     }
 
     @Override
     public List<RoomDto> getAllRooms() {
-        return roomRepository.findAll().stream()
+        User currentUser = securityUtils.getCurrentUser();
+        return roomRepository.findByUser(currentUser).stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
     }
 
     @Override
     public RoomDto getRoomById(Long id) {
-        Room room = roomRepository.findById(id)
+        User currentUser = securityUtils.getCurrentUser();
+        Room room = roomRepository.findByIdAndUser(id, currentUser)
                 .orElseThrow(() -> new ResourceNotFoundException("Room not found with ID: " + id));
         return mapToDto(room);
     }
 
     @Override
     public RoomDto createRoom(RoomDto roomDto) {
-        if (roomRepository.findByRoomNumber(roomDto.getRoomNumber()).isPresent()) {
-            throw new InvalidBookingException("Room number " + roomDto.getRoomNumber() + " already exists");
+        User currentUser = securityUtils.getCurrentUser();
+        if (roomRepository.findByRoomNumberAndUser(roomDto.getRoomNumber(), currentUser).isPresent()) {
+            throw new InvalidBookingException("Room number " + roomDto.getRoomNumber() + " already exists in your account");
         }
 
         String status = "available";
@@ -45,6 +52,7 @@ public class RoomServiceImpl implements RoomService {
         }
 
         Room room = Room.builder()
+                .user(currentUser)
                 .roomNumber(roomDto.getRoomNumber())
                 .floor(roomDto.getFloor())
                 .status(status)
@@ -58,12 +66,13 @@ public class RoomServiceImpl implements RoomService {
 
     @Override
     public RoomDto updateRoom(Long id, RoomDto roomDto) {
-        Room room = roomRepository.findById(id)
+        User currentUser = securityUtils.getCurrentUser();
+        Room room = roomRepository.findByIdAndUser(id, currentUser)
                 .orElseThrow(() -> new ResourceNotFoundException("Room not found with ID: " + id));
 
         if (!room.getRoomNumber().equals(roomDto.getRoomNumber())) {
-            if (roomRepository.findByRoomNumber(roomDto.getRoomNumber()).isPresent()) {
-                throw new InvalidBookingException("Room number " + roomDto.getRoomNumber() + " already exists");
+            if (roomRepository.findByRoomNumberAndUser(roomDto.getRoomNumber(), currentUser).isPresent()) {
+                throw new InvalidBookingException("Room number " + roomDto.getRoomNumber() + " already exists in your account");
             }
             room.setRoomNumber(roomDto.getRoomNumber());
         }
@@ -82,14 +91,16 @@ public class RoomServiceImpl implements RoomService {
 
     @Override
     public void deleteRoom(Long id) {
-        Room room = roomRepository.findById(id)
+        User currentUser = securityUtils.getCurrentUser();
+        Room room = roomRepository.findByIdAndUser(id, currentUser)
                 .orElseThrow(() -> new ResourceNotFoundException("Room not found with ID: " + id));
         roomRepository.delete(room);
     }
 
     @Override
     public List<RoomDto> getRoomsByStatus(String status) {
-        return roomRepository.findByStatus(status.toLowerCase()).stream()
+        User currentUser = securityUtils.getCurrentUser();
+        return roomRepository.findByStatusAndUser(status.toLowerCase(), currentUser).stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
     }

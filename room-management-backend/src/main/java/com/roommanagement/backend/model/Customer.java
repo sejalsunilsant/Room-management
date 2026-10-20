@@ -17,6 +17,10 @@ public class Customer {
     @Column(name = "customer_id")
     private Long id;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id")
+    private User user;
+
     @Column(nullable = false, length = 100)
     private String name;
 

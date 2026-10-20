@@ -5,7 +5,9 @@ import lombok.*;
 import java.math.BigDecimal;
 
 @Entity
-@Table(name = "rooms")
+@Table(name = "rooms", uniqueConstraints = {
+    @UniqueConstraint(name = "uk_user_room_number", columnNames = {"user_id", "room_number"})
+})
 @Getter
 @Setter
 @NoArgsConstructor
@@ -18,7 +20,11 @@ public class Room {
     @Column(name = "room_id")
     private Long id;
 
-    @Column(name = "room_number", unique = true, nullable = false, length = 10)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id")
+    private User user;
+
+    @Column(name = "room_number", nullable = false, length = 10)
     private String roomNumber;
 
     @Column(nullable = false)

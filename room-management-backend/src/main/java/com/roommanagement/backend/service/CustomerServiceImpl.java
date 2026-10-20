@@ -3,7 +3,9 @@ package com.roommanagement.backend.service;
 import com.roommanagement.backend.dto.CustomerDto;
 import com.roommanagement.backend.exception.ResourceNotFoundException;
 import com.roommanagement.backend.model.Customer;
+import com.roommanagement.backend.model.User;
 import com.roommanagement.backend.repository.CustomerRepository;
+import com.roommanagement.backend.security.SecurityUtils;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -13,28 +15,34 @@ import java.util.stream.Collectors;
 public class CustomerServiceImpl implements CustomerService {
 
     private final CustomerRepository customerRepository;
+    private final SecurityUtils securityUtils;
 
-    public CustomerServiceImpl(CustomerRepository customerRepository) {
+    public CustomerServiceImpl(CustomerRepository customerRepository, SecurityUtils securityUtils) {
         this.customerRepository = customerRepository;
+        this.securityUtils = securityUtils;
     }
 
     @Override
     public List<CustomerDto> getAllCustomers() {
-        return customerRepository.findAll().stream()
+        User currentUser = securityUtils.getCurrentUser();
+        return customerRepository.findByUser(currentUser).stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
     }
 
     @Override
     public CustomerDto getCustomerById(Long id) {
-        Customer customer = customerRepository.findById(id)
+        User currentUser = securityUtils.getCurrentUser();
+        Customer customer = customerRepository.findByIdAndUser(id, currentUser)
                 .orElseThrow(() -> new ResourceNotFoundException("Customer not found with ID: " + id));
         return mapToDto(customer);
     }
 
     @Override
     public CustomerDto createCustomer(CustomerDto customerDto) {
+        User currentUser = securityUtils.getCurrentUser();
         Customer customer = Customer.builder()
+                .user(currentUser)
                 .name(customerDto.getName())
                 .phoneNo(customerDto.getPhoneNo())
                 .email(customerDto.getEmail())
@@ -46,7 +54,8 @@ public class CustomerServiceImpl implements CustomerService {
 
     @Override
     public CustomerDto updateCustomer(Long id, CustomerDto customerDto) {
-        Customer customer = customerRepository.findById(id)
+        User currentUser = securityUtils.getCurrentUser();
+        Customer customer = customerRepository.findByIdAndUser(id, currentUser)
                 .orElseThrow(() -> new ResourceNotFoundException("Customer not found with ID: " + id));
 
         customer.setName(customerDto.getName());
@@ -60,7 +69,8 @@ public class CustomerServiceImpl implements CustomerService {
 
     @Override
     public void deleteCustomer(Long id) {
-        Customer customer = customerRepository.findById(id)
+        User currentUser = securityUtils.getCurrentUser();
+        Customer customer = customerRepository.findByIdAndUser(id, currentUser)
                 .orElseThrow(() -> new ResourceNotFoundException("Customer not found with ID: " + id));
         customerRepository.delete(customer);
     }

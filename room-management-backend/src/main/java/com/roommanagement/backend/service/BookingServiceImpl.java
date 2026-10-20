@@ -7,9 +7,11 @@ import com.roommanagement.backend.exception.ResourceNotFoundException;
 import com.roommanagement.backend.model.Booking;
 import com.roommanagement.backend.model.Customer;
 import com.roommanagement.backend.model.Room;
+import com.roommanagement.backend.model.User;
 import com.roommanagement.backend.repository.BookingRepository;
 import com.roommanagement.backend.repository.CustomerRepository;
 import com.roommanagement.backend.repository.RoomRepository;
+import com.roommanagement.backend.security.SecurityUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,25 +25,30 @@ public class BookingServiceImpl implements BookingService {
     private final BookingRepository bookingRepository;
     private final RoomRepository roomRepository;
     private final CustomerRepository customerRepository;
+    private final SecurityUtils securityUtils;
 
     public BookingServiceImpl(BookingRepository bookingRepository,
-            RoomRepository roomRepository,
-            CustomerRepository customerRepository) {
+                              RoomRepository roomRepository,
+                              CustomerRepository customerRepository,
+                              SecurityUtils securityUtils) {
         this.bookingRepository = bookingRepository;
         this.roomRepository = roomRepository;
         this.customerRepository = customerRepository;
+        this.securityUtils = securityUtils;
     }
 
     @Override
     public List<BookingResponse> getAllBookings() {
-        return bookingRepository.findAll().stream()
+        User currentUser = securityUtils.getCurrentUser();
+        return bookingRepository.findByUser(currentUser).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
 
     @Override
     public BookingResponse getBookingById(Long id) {
-        Booking booking = bookingRepository.findById(id)
+        User currentUser = securityUtils.getCurrentUser();
+        Booking booking = bookingRepository.findByIdAndUser(id, currentUser)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking not found with ID: " + id));
         return mapToResponse(booking);
     }
@@ -49,11 +56,13 @@ public class BookingServiceImpl implements BookingService {
     @Override
     @Transactional
     public BookingResponse createBooking(BookingRequest bookingRequest) {
-        Customer customer = customerRepository.findById(bookingRequest.getCustomerId())
+        User currentUser = securityUtils.getCurrentUser();
+
+        Customer customer = customerRepository.findByIdAndUser(bookingRequest.getCustomerId(), currentUser)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Customer not found with ID: " + bookingRequest.getCustomerId()));
 
-        Room room = roomRepository.findById(bookingRequest.getRoomId())
+        Room room = roomRepository.findByIdAndUser(bookingRequest.getRoomId(), currentUser)
                 .orElseThrow(
                         () -> new ResourceNotFoundException("Room not found with ID: " + bookingRequest.getRoomId()));
 
@@ -73,12 +82,13 @@ public class BookingServiceImpl implements BookingService {
         }
 
         LocalDate checkEnd = (end != null) ? end : start.plusYears(10);
-        List<Booking> overlaps = bookingRepository.findOverlappingBookings(room.getId(), start, checkEnd);
+        List<Booking> overlaps = bookingRepository.findOverlappingBookings(room.getId(), currentUser, start, checkEnd);
         if (!overlaps.isEmpty()) {
             throw new InvalidBookingException("Room is already booked for this period");
         }
 
         Booking booking = Booking.builder()
+                .user(currentUser)
                 .customer(customer)
                 .room(room)
                 .checkInDate(start)
@@ -96,7 +106,8 @@ public class BookingServiceImpl implements BookingService {
     @Override
     @Transactional
     public BookingResponse cancelBooking(Long id) {
-        Booking booking = bookingRepository.findById(id)
+        User currentUser = securityUtils.getCurrentUser();
+        Booking booking = bookingRepository.findByIdAndUser(id, currentUser)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking not found with ID: " + id));
 
         if ("Cancelled".equalsIgnoreCase(booking.getStatus())) {
@@ -117,7 +128,8 @@ public class BookingServiceImpl implements BookingService {
     @Override
     @Transactional
     public BookingResponse completeBooking(Long id) {
-        Booking booking = bookingRepository.findById(id)
+        User currentUser = securityUtils.getCurrentUser();
+        Booking booking = bookingRepository.findByIdAndUser(id, currentUser)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking not found with ID: " + id));
 
         if (!"Booked".equalsIgnoreCase(booking.getStatus())) {
@@ -137,7 +149,8 @@ public class BookingServiceImpl implements BookingService {
 
     @Override
     public List<BookingResponse> getBookingsByCustomerId(Long customerId) {
-        return bookingRepository.findByCustomerId(customerId).stream()
+        User currentUser = securityUtils.getCurrentUser();
+        return bookingRepository.findByCustomerIdAndUser(customerId, currentUser).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }

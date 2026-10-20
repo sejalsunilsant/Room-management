@@ -6,9 +6,11 @@ import com.roommanagement.backend.exception.ResourceNotFoundException;
 import com.roommanagement.backend.model.Bill;
 import com.roommanagement.backend.model.Booking;
 import com.roommanagement.backend.model.ElectricityReading;
+import com.roommanagement.backend.model.User;
 import com.roommanagement.backend.repository.BillRepository;
 import com.roommanagement.backend.repository.BookingRepository;
 import com.roommanagement.backend.repository.ElectricityReadingRepository;
+import com.roommanagement.backend.security.SecurityUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,25 +26,30 @@ public class BillServiceImpl implements BillService {
     private final BillRepository billRepository;
     private final BookingRepository bookingRepository;
     private final ElectricityReadingRepository readingRepository;
+    private final SecurityUtils securityUtils;
 
     public BillServiceImpl(BillRepository billRepository,
-            BookingRepository bookingRepository,
-            ElectricityReadingRepository readingRepository) {
+                           BookingRepository bookingRepository,
+                           ElectricityReadingRepository readingRepository,
+                           SecurityUtils securityUtils) {
         this.billRepository = billRepository;
         this.bookingRepository = bookingRepository;
         this.readingRepository = readingRepository;
+        this.securityUtils = securityUtils;
     }
 
     @Override
     public List<BillDto> getAllBills() {
-        return billRepository.findAll().stream()
+        User currentUser = securityUtils.getCurrentUser();
+        return billRepository.findByUser(currentUser).stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
     }
 
     @Override
     public BillDto getBillById(Long id) {
-        Bill bill = billRepository.findById(id)
+        User currentUser = securityUtils.getCurrentUser();
+        Bill bill = billRepository.findByIdAndUser(id, currentUser)
                 .orElseThrow(() -> new ResourceNotFoundException("Bill not found with ID: " + id));
         return mapToDto(bill);
     }
@@ -50,7 +57,9 @@ public class BillServiceImpl implements BillService {
     @Override
     @Transactional
     public BillDto generateBill(Long bookingId, String billingMonth, BigDecimal fallbackUnitRate) {
-        Booking booking = bookingRepository.findById(bookingId)
+        User currentUser = securityUtils.getCurrentUser();
+
+        Booking booking = bookingRepository.findByIdAndUser(bookingId, currentUser)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking not found with ID: " + bookingId));
 
         YearMonth yearMonth;
@@ -61,7 +70,7 @@ public class BillServiceImpl implements BillService {
         }
         LocalDate monthDate = yearMonth.atDay(1);
 
-        if (billRepository.findByBookingIdAndBillingMonth(bookingId, monthDate).isPresent()) {
+        if (billRepository.findByBookingIdAndBillingMonthAndUser(bookingId, monthDate, currentUser).isPresent()) {
             throw new InvalidBookingException("Bill has already been generated for this booking and month");
         }
 
@@ -86,7 +95,7 @@ public class BillServiceImpl implements BillService {
         LocalDate start = monthDate.withDayOfMonth(1);
         LocalDate end = monthDate.withDayOfMonth(monthDate.lengthOfMonth());
 
-        List<ElectricityReading> readings = readingRepository.findByRoomId(booking.getRoom().getId());
+        List<ElectricityReading> readings = readingRepository.findByRoomIdAndUser(booking.getRoom().getId(), currentUser);
         ElectricityReading reading = readings.stream()
                 .filter(r -> !r.getReadingDate().isBefore(start) && !r.getReadingDate().isAfter(end))
                 .findFirst()
@@ -98,8 +107,7 @@ public class BillServiceImpl implements BillService {
         }
 
         // Query previous bills for the booking and calculate unpaid balance
-        // (totalAmount - paidAmount)
-        List<Bill> previousBills = billRepository.findByBookingId(bookingId);
+        List<Bill> previousBills = billRepository.findByBookingIdAndUser(bookingId, currentUser);
         BigDecimal previousBalance = previousBills.stream()
                 .filter(b -> b.getBillingMonth().isBefore(monthDate))
                 .map(b -> b.getTotalAmount().subtract(b.getPaidAmount()))
@@ -108,6 +116,7 @@ public class BillServiceImpl implements BillService {
         BigDecimal totalAmount = rent.add(electricityCharge).add(previousBalance);
 
         Bill bill = Bill.builder()
+                .user(currentUser)
                 .booking(booking)
                 .billingMonth(monthDate)
                 .rentAmount(rent)
@@ -126,7 +135,8 @@ public class BillServiceImpl implements BillService {
     @Override
     @Transactional
     public BillDto recordPayment(Long billId, BigDecimal amount) {
-        Bill bill = billRepository.findById(billId)
+        User currentUser = securityUtils.getCurrentUser();
+        Bill bill = billRepository.findByIdAndUser(billId, currentUser)
                 .orElseThrow(() -> new ResourceNotFoundException("Bill not found with ID: " + billId));
 
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
@@ -149,6 +159,7 @@ public class BillServiceImpl implements BillService {
 
     @Override
     public List<BillDto> getBillsByMonth(String billingMonth) {
+        User currentUser = securityUtils.getCurrentUser();
         YearMonth yearMonth;
         try {
             yearMonth = YearMonth.parse(billingMonth);
@@ -156,14 +167,15 @@ public class BillServiceImpl implements BillService {
             throw new InvalidBookingException("Invalid month format YYYY-MM");
         }
         LocalDate monthDate = yearMonth.atDay(1);
-        return billRepository.findByBillingMonth(monthDate).stream()
+        return billRepository.findByBillingMonthAndUser(monthDate, currentUser).stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
     }
 
     @Override
     public List<BillDto> getBillsByCustomer(Long customerId) {
-        return billRepository.findByCustomerId(customerId).stream()
+        User currentUser = securityUtils.getCurrentUser();
+        return billRepository.findByCustomerIdAndUser(customerId, currentUser).stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
     }
